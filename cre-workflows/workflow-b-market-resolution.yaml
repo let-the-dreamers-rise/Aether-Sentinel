@@ -1,0 +1,222 @@
+# Chainlink Runtime Environment (CRE) Workflow B
+# Prediction Market Resolution - Event-driven
+
+name: prediction-market-resolution
+version: 1.0.0
+description: Automatically resolves prediction markets using oracle consensus
+
+# Triggers
+triggers:
+  - type: event
+    contract: PredictionMarket
+    event: MarketClosed
+    description: Triggered when a market reaches its end time
+
+# Workflow steps
+steps:
+  # Step 1: Fetch market details
+  - id: fetch_market_details
+    type: blockchain_read
+    description: Get market information
+    config:
+      chain: ethereum
+      contract: ${PREDICTION_MARKET_ADDRESS}
+      function: getMarket
+      params:
+        - ${trigger.event.marketId}
+      outputs:
+        - market_id
+        - question
+        - outcomes
+        - end_time
+        - total_stake
+    retry:
+      max_attempts: 3
+      backoff: exponential
+
+  # Step 2: Fetch oracle data from multiple sources
+  - id: fetch_oracle_data_source1
+    type: http_request
+    description: Fetch from Oracle Source 1
+    config:
+      method: GET
+      url: ${ORACLE_SOURCE_1_URL}/resolve
+      params:
+        question: ${steps.fetch_market_details.outputs.question}
+        market_id: ${steps.fetch_market_details.outputs.market_id}
+      headers:
+        Authorization: Bearer ${ORACLE_1_API_KEY}
+      timeout: 15s
+    retry:
+      max_attempts: 3
+      backoff: exponential
+      initial_delay: 2s
+
+  - id: fetch_oracle_data_source2
+    type: http_request
+    description: Fetch from Oracle Source 2
+    config:
+      method: GET
+      url: ${ORACLE_SOURCE_2_URL}/resolve
+      params:
+        question: ${steps.fetch_market_details.outputs.question}
+        market_id: ${steps.fetch_market_details.outputs.market_id}
+      headers:
+        Authorization: Bearer ${ORACLE_2_API_KEY}
+      timeout: 15s
+    retry:
+      max_attempts: 3
+      backoff: exponential
+      initial_delay: 2s
+
+  - id: fetch_oracle_data_source3
+    type: http_request
+    description: Fetch from Oracle Source 3
+    config:
+      method: GET
+      url: ${ORACLE_SOURCE_3_URL}/resolve
+      params:
+        question: ${steps.fetch_market_details.outputs.question}
+        market_id: ${steps.fetch_market_details.outputs.market_id}
+      headers:
+        Authorization: Bearer ${ORACLE_3_API_KEY}
+      timeout: 15s
+    retry:
+      max_attempts: 3
+      backoff: exponential
+      initial_delay: 2s
+
+  # Step 3: Validate consensus (2/3 required)
+  - id: validate_consensus
+    type: compute
+    description: Check if 2 out of 3 oracles agree
+    config:
+      script: |
+        const oracle1 = steps.fetch_oracle_data_source1.outputs;
+        const oracle2 = steps.fetch_oracle_data_source2.outputs;
+        const oracle3 = steps.fetch_oracle_data_source3.outputs;
+        
+        const results = [
+          oracle1.winning_outcome,
+          oracle2.winning_outcome,
+          oracle3.winning_outcome
+        ];
+        
+        // Count occurrences
+        const counts = {};
+        results.forEach(outcome => {
+          counts[outcome] = (counts[outcome] || 0) + 1;
+        });
+        
+        // Find outcome with 2+ votes
+        const consensus = Object.entries(counts).find(([_, count]) => count >= 2);
+        
+        if (!consensus) {
+          throw new Error("No consensus reached - dispute required");
+        }
+        
+        return {
+          winning_outcome: parseInt(consensus[0]),
+          consensus_count: consensus[1],
+          resolution_data: JSON.stringify({
+            oracle1: oracle1.winning_outcome,
+            oracle2: oracle2.winning_outcome,
+            oracle3: oracle3.winning_outcome,
+            sources: [oracle1.source, oracle2.source, oracle3.source]
+          })
+        };
+    on_error:
+      action: goto
+      target: handle_dispute
+
+  # Step 4: Settle market on-chain
+  - id: settle_market
+    type: blockchain_write
+    description: Settle the market with consensus result
+    config:
+      chain: ethereum
+      contract: ${PREDICTION_MARKET_ADDRESS}
+      function: settleMarket
+      params:
+        - ${trigger.event.marketId}
+        - ${steps.validate_consensus.outputs.winning_outcome}
+        - ${steps.validate_consensus.outputs.resolution_data}
+      gas_limit: 500000
+      max_fee_per_gas: 100gwei
+    retry:
+      max_attempts: 2
+      backoff: linear
+      initial_delay: 10s
+
+  # Step 5: Emit settlement event
+  - id: emit_settlement_event
+    type: log
+    description: Log successful settlement
+    config:
+      level: info
+      message: "Market ${trigger.event.marketId} settled successfully"
+      metadata:
+        market_id: ${trigger.event.marketId}
+        winning_outcome: ${steps.validate_consensus.outputs.winning_outcome}
+        consensus_count: ${steps.validate_consensus.outputs.consensus_count}
+        timestamp: ${Date.now()}
+
+  # Step 6: Send notifications
+  - id: notify_participants
+    type: notification
+    description: Notify market participants
+    config:
+      channels:
+        - email
+        - push
+      template: market_settled
+      recipients: ${steps.fetch_market_details.outputs.participants}
+      data:
+        market_id: ${trigger.event.marketId}
+        question: ${steps.fetch_market_details.outputs.question}
+        winning_outcome: ${steps.validate_consensus.outputs.winning_outcome}
+
+  # Dispute handling
+  - id: handle_dispute
+    type: blockchain_write
+    description: Escalate to governance for manual resolution
+    config:
+      chain: ethereum
+      contract: ${GOVERNANCE_MODULE_ADDRESS}
+      function: createEmergencyProposal
+      params:
+        - "Market Resolution Dispute"
+        - "No oracle consensus for market ${trigger.event.marketId}"
+        - ${PREDICTION_MARKET_ADDRESS}
+        - "0x"  # calldata for manual resolution
+        - 85  # risk score for dispute
+        - "Oracle consensus failed - manual intervention required"
+      gas_limit: 400000
+      max_fee_per_gas: 100gwei
+
+# Error handling
+on_error:
+  - type: log
+    level: error
+    message: "Market resolution failed: ${error.message}"
+  - type: notification
+    channels:
+      - slack
+      - pagerduty
+    severity: high
+    recipients: ${ALERT_RECIPIENTS}
+
+# Monitoring
+monitoring:
+  metrics:
+    - name: markets_resolved
+      type: counter
+    - name: consensus_success_rate
+      type: gauge
+    - name: resolution_time
+      type: histogram
+  alerts:
+    - condition: consensus_success_rate < 0.9
+      severity: warning
+    - condition: resolution_time > 300s
+      severity: warning

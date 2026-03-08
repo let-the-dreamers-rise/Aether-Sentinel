@@ -1,0 +1,15 @@
+account_id: ""
+project_slug: aether-sentinel
+contracts:
+  - name: TokenizedVault
+    address: ""
+    network: "1"
+  - name: RiskGuardian
+    address: ""
+    network: "1"
+  - name: PredictionMarket
+    address: ""
+    network: "1"
+  - name: GovernanceModule
+    address: ""
+    network: "1"

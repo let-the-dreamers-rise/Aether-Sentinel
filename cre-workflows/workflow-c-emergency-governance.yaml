@@ -1,0 +1,206 @@
+# Chainlink Runtime Environment (CRE) Workflow C
+# Emergency Governance Trigger - Conditional on critical risk
+
+name: emergency-governance-trigger
+version: 1.0.0
+description: Creates emergency governance proposals for critical risk situations
+
+# Triggers
+triggers:
+  - type: conditional
+    description: Triggered when risk score >= 90
+    condition: ${risk_score} >= 90
+    source: workflow-a-risk-monitoring
+
+# Workflow steps
+steps:
+  # Step 1: Fetch risk context
+  - id: fetch_risk_context
+    type: compute
+    description: Gather comprehensive risk context
+    config:
+      script: |
+        return {
+          risk_score: trigger.risk_score,
+          risk_reasoning: trigger.reasoning,
+          vault_state: trigger.vault_state,
+          market_conditions: trigger.market_data,
+          timestamp: new Date().toISOString(),
+          triggered_by: "CRE Workflow A - Risk Monitoring"
+        };
+
+  # Step 2: Determine emergency action
+  - id: determine_emergency_action
+    type: compute
+    description: Determine appropriate emergency action
+    config:
+      script: |
+        const riskScore = steps.fetch_risk_context.outputs.risk_score;
+        const vaultState = steps.fetch_risk_context.outputs.vault_state;
+        
+        let action, callData;
+        
+        if (riskScore >= 95) {
+          // Critical: Emergency pause
+          action = "Emergency Pause All Operations";
+          callData = encodeFunctionCall(
+            "emergencyPause",
+            []
+          );
+        } else if (riskScore >= 90) {
+          // Severe: Adjust reserve ratio to maximum
+          action = "Increase Reserve Ratio to 50%";
+          callData = encodeFunctionCall(
+            "adjustMinimumReserveRatio",
+            [5000]  // 50% in basis points
+          );
+        }
+        
+        return {
+          action_title: action,
+          target_contract: process.env.TOKENIZED_VAULT_ADDRESS,
+          call_data: callData,
+          description: `Emergency action required due to critical risk level: ${riskScore}`
+        };
+
+  # Step 3: Create emergency proposal
+  - id: create_emergency_proposal
+    type: blockchain_write
+    description: Create emergency governance proposal
+    config:
+      chain: ethereum
+      contract: ${GOVERNANCE_MODULE_ADDRESS}
+      function: createEmergencyProposal
+      params:
+        - ${steps.determine_emergency_action.outputs.action_title}
+        - ${steps.determine_emergency_action.outputs.description}
+        - ${steps.determine_emergency_action.outputs.target_contract}
+        - ${steps.determine_emergency_action.outputs.call_data}
+        - ${steps.fetch_risk_context.outputs.risk_score}
+        - ${steps.fetch_risk_context.outputs.risk_reasoning}
+      gas_limit: 500000
+      max_fee_per_gas: 150gwei
+    retry:
+      max_attempts: 3
+      backoff: exponential
+      initial_delay: 5s
+
+  # Step 4: Dispatch urgent notifications
+  - id: dispatch_notifications
+    type: notification
+    description: Alert all stakeholders immediately
+    config:
+      priority: critical
+      channels:
+        - sms
+        - phone_call
+        - slack
+        - email
+        - push
+      recipients: ${EMERGENCY_CONTACTS}
+      template: emergency_proposal_created
+      data:
+        proposal_id: ${steps.create_emergency_proposal.outputs.proposalId}
+        risk_score: ${steps.fetch_risk_context.outputs.risk_score}
+        action: ${steps.determine_emergency_action.outputs.action_title}
+        reasoning: ${steps.fetch_risk_context.outputs.risk_reasoning}
+        voting_deadline: ${steps.create_emergency_proposal.outputs.votingEndTime}
+        governance_url: "${GOVERNANCE_UI_URL}/proposals/${steps.create_emergency_proposal.outputs.proposalId}"
+
+  # Step 5: Create incident report
+  - id: create_incident_report
+    type: http_request
+    description: Log incident in monitoring system
+    config:
+      method: POST
+      url: ${INCIDENT_MANAGEMENT_URL}/incidents
+      headers:
+        Authorization: Bearer ${INCIDENT_API_KEY}
+        Content-Type: application/json
+      body:
+        title: "Critical Risk Detected - Emergency Proposal Created"
+        severity: critical
+        status: open
+        description: ${steps.fetch_risk_context.outputs.risk_reasoning}
+        metadata:
+          risk_score: ${steps.fetch_risk_context.outputs.risk_score}
+          proposal_id: ${steps.create_emergency_proposal.outputs.proposalId}
+          vault_state: ${steps.fetch_risk_context.outputs.vault_state}
+          market_conditions: ${steps.fetch_risk_context.outputs.market_conditions}
+        tags:
+          - emergency
+          - governance
+          - risk-management
+
+  # Step 6: Monitor proposal status
+  - id: monitor_proposal
+    type: blockchain_watch
+    description: Watch for proposal execution or guardian override
+    config:
+      chain: ethereum
+      contract: ${GOVERNANCE_MODULE_ADDRESS}
+      events:
+        - ProposalExecuted
+        - GuardianOverride
+      filter:
+        proposalId: ${steps.create_emergency_proposal.outputs.proposalId}
+      timeout: 24h
+      on_event:
+        - type: notification
+          message: "Emergency proposal ${event.name}: ${event.proposalId}"
+        - type: log
+          level: info
+          message: "Proposal status updated: ${event.name}"
+
+  # Step 7: Log completion
+  - id: log_completion
+    type: log
+    description: Log workflow completion
+    config:
+      level: info
+      message: "Emergency governance workflow completed"
+      metadata:
+        proposal_id: ${steps.create_emergency_proposal.outputs.proposalId}
+        risk_score: ${steps.fetch_risk_context.outputs.risk_score}
+        action: ${steps.determine_emergency_action.outputs.action_title}
+        notifications_sent: ${steps.dispatch_notifications.outputs.sent_count}
+        timestamp: ${Date.now()}
+
+# Error handling
+on_error:
+  - type: log
+    level: critical
+    message: "Emergency governance workflow failed: ${error.message}"
+  - type: notification
+    priority: critical
+    channels:
+      - sms
+      - phone_call
+      - pagerduty
+    recipients: ${EMERGENCY_CONTACTS}
+    message: "CRITICAL: Emergency governance workflow failed - manual intervention required"
+  - type: http_request
+    description: Create critical incident
+    config:
+      method: POST
+      url: ${INCIDENT_MANAGEMENT_URL}/incidents
+      body:
+        title: "Emergency Governance Workflow Failure"
+        severity: critical
+        status: open
+        description: ${error.message}
+
+# Monitoring
+monitoring:
+  metrics:
+    - name: emergency_proposals_created
+      type: counter
+    - name: emergency_response_time
+      type: histogram
+    - name: notification_delivery_rate
+      type: gauge
+  alerts:
+    - condition: emergency_response_time > 60s
+      severity: critical
+    - condition: notification_delivery_rate < 0.95
+      severity: high

@@ -1,0 +1,14 @@
+{
+  "network": "sepolia",
+  "chainId": 11155111,
+  "deployer": "0x9A1ea0029144cd0804A98f3726Ad1E787cAB885f",
+  "timestamp": "2026-03-04T20:29:19.186Z",
+  "contracts": {
+    "MockWorldID": "0xB7E89c0f242618455026c72302D543C4A93e992D",
+    "MockERC20": "0x0C4a07a310BEDd9D83AbbC6Ef7Cee4cC1F5eBbB2",
+    "TokenizedVault": "0x85971836aBc961Ef3D0FEC3ed1c9f0049ceF5241",
+    "RiskGuardian": "0x5739f1f974660993cd4339aB4AaC80f264f195bd",
+    "PredictionMarket": "0x7aa16Bf4eBA937471C88514fb91eA8D10d0d92dA",
+    "GovernanceModule": "0x746e3181212F98CB7Db1949b682C78404886B6A0"
+  }
+}

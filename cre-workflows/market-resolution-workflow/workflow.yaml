@@ -1,0 +1,18 @@
+# AETHER SENTINEL - Market Resolution CRE Workflow Configuration
+# Reads expired markets -> fetches price data -> settles on-chain
+
+staging-settings:
+  user-workflow:
+    workflow-name: "aether-sentinel-market-resolution-staging"
+  workflow-artifacts:
+    workflow-path: "./main.ts"
+    config-path: "./config.staging.json"
+    secrets-path: ""
+
+production-settings:
+  user-workflow:
+    workflow-name: "aether-sentinel-market-resolution-production"
+  workflow-artifacts:
+    workflow-path: "./main.ts"
+    config-path: "./config.production.json"
+    secrets-path: "../secrets.yaml"

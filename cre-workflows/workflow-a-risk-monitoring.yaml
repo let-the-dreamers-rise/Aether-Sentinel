@@ -1,0 +1,231 @@
+# Chainlink Runtime Environment (CRE) Workflow A
+# Continuous Risk Monitoring - Executes every 15 minutes
+
+name: continuous-risk-monitoring
+version: 1.0.0
+description: Monitors vault state and triggers risk responses automatically
+
+# Triggers
+triggers:
+  - type: time
+    schedule: "*/15 * * * *"  # Every 15 minutes
+  - type: event
+    contract: TokenizedVault
+    event: LargeWithdrawal
+    filter:
+      amount_gt: 100000  # Trigger on withdrawals > $100k
+
+# Workflow steps
+steps:
+  # Step 1: Fetch vault state from blockchain
+  - id: fetch_vault_state
+    type: blockchain_read
+    description: Fetch current vault state
+    config:
+      chain: ethereum
+      contract: ${TOKENIZED_VAULT_ADDRESS}
+      function: getVaultState
+      outputs:
+        - reserve_ratio
+        - total_deposits
+        - total_liabilities
+        - paused
+        - last_update
+    retry:
+      max_attempts: 3
+      backoff: exponential
+      initial_delay: 1s
+
+  # Step 2: Fetch recent transactions
+  - id: fetch_recent_transactions
+    type: blockchain_read
+    description: Fetch recent withdrawal transactions
+    config:
+      chain: ethereum
+      contract: ${TOKENIZED_VAULT_ADDRESS}
+      event_filter:
+        event: Withdrawal
+        from_block: -100  # Last 100 blocks (~20 minutes)
+      outputs:
+        - recent_withdrawals
+        - withdrawal_count
+    retry:
+      max_attempts: 3
+      backoff: exponential
+      initial_delay: 1s
+
+  # Step 3: Fetch market data
+  - id: fetch_market_data
+    type: http_request
+    description: Fetch market data from external APIs
+    config:
+      method: GET
+      urls:
+        - ${MARKET_DATA_API_URL}/volatility
+        - ${MARKET_DATA_API_URL}/liquidity
+        - ${MARKET_DATA_API_URL}/prices
+      headers:
+        Authorization: Bearer ${MARKET_DATA_API_KEY}
+      timeout: 10s
+    retry:
+      max_attempts: 3
+      backoff: exponential
+      initial_delay: 2s
+
+  # Step 4: Aggregate data
+  - id: aggregate_data
+    type: compute
+    description: Aggregate and format data for AI engine
+    config:
+      script: |
+        const vaultState = steps.fetch_vault_state.outputs;
+        const transactions = steps.fetch_recent_transactions.outputs;
+        const marketData = steps.fetch_market_data.outputs;
+        
+        // Calculate recent withdrawal amount
+        const recentWithdrawals = transactions.recent_withdrawals.reduce(
+          (sum, tx) => sum + parseFloat(tx.amount), 0
+        );
+        
+        return {
+          vault_state: {
+            reserve_ratio: vaultState.reserve_ratio / 100,
+            total_deposits: vaultState.total_deposits,
+            total_liabilities: vaultState.total_liabilities,
+            recent_withdrawals: recentWithdrawals,
+            timestamp: new Date().toISOString()
+          },
+          market_data: {
+            volatility_index: marketData[0].volatility,
+            liquidity_score: marketData[1].liquidity_score,
+            price_change_24h: marketData[2].price_change_24h,
+            volume_24h: marketData[2].volume_24h
+          }
+        };
+
+  # Step 5: Call AI Risk Engine
+  - id: call_ai_risk_engine
+    type: http_request
+    description: Get risk assessment from AI engine
+    config:
+      method: POST
+      url: ${AI_RISK_ENGINE_URL}/api/v1/assess-risk
+      headers:
+        Authorization: Bearer ${AI_ENGINE_JWT}
+        Content-Type: application/json
+      body: ${steps.aggregate_data.outputs}
+      timeout: 30s
+    retry:
+      max_attempts: 2
+      backoff: exponential
+      initial_delay: 5s
+    on_error:
+      action: use_failsafe
+      failsafe_response:
+        risk_score: 50
+        recommended_action: MONITOR
+        confidence: 0.5
+        reasoning: "AI engine unavailable - using fail-safe"
+
+  # Step 6: Evaluate risk and determine action
+  - id: evaluate_risk
+    type: conditional
+    description: Determine if action is needed based on risk score
+    config:
+      condition: ${steps.call_ai_risk_engine.outputs.risk_score} >= 60
+      branches:
+        - when: ${steps.call_ai_risk_engine.outputs.risk_score} >= 90
+          goto: execute_critical_response
+        - when: ${steps.call_ai_risk_engine.outputs.risk_score} >= 80
+          goto: execute_elevated_response
+        - when: ${steps.call_ai_risk_engine.outputs.risk_score} >= 60
+          goto: execute_moderate_response
+        - default:
+          goto: log_and_complete
+
+  # Step 7a: Execute critical risk response (PAUSE)
+  - id: execute_critical_response
+    type: blockchain_write
+    description: Execute emergency pause
+    config:
+      chain: ethereum
+      contract: ${RISK_GUARDIAN_ADDRESS}
+      function: executeRiskResponse
+      params:
+        - ${steps.call_ai_risk_engine.outputs.risk_score}
+        - ${steps.call_ai_risk_engine.outputs.recommended_action}
+        - ${steps.call_ai_risk_engine.outputs.confidence}
+        - ${steps.call_ai_risk_engine.outputs.reasoning}
+      gas_limit: 500000
+      max_fee_per_gas: 100gwei
+    retry:
+      max_attempts: 2
+      backoff: linear
+      initial_delay: 10s
+
+  # Step 7b: Execute elevated risk response (ADJUST)
+  - id: execute_elevated_response
+    type: blockchain_write
+    description: Adjust reserve ratio
+    config:
+      chain: ethereum
+      contract: ${RISK_GUARDIAN_ADDRESS}
+      function: executeRiskResponse
+      params:
+        - ${steps.call_ai_risk_engine.outputs.risk_score}
+        - ${steps.call_ai_risk_engine.outputs.recommended_action}
+        - ${steps.call_ai_risk_engine.outputs.confidence}
+        - ${steps.call_ai_risk_engine.outputs.reasoning}
+      gas_limit: 300000
+      max_fee_per_gas: 100gwei
+    retry:
+      max_attempts: 2
+      backoff: linear
+      initial_delay: 10s
+
+  # Step 7c: Execute moderate risk response (MONITOR)
+  - id: execute_moderate_response
+    type: log
+    description: Log warning for moderate risk
+    config:
+      level: warning
+      message: "Moderate risk detected: ${steps.call_ai_risk_engine.outputs.reasoning}"
+      metadata: ${steps.call_ai_risk_engine.outputs}
+
+  # Step 8: Log completion
+  - id: log_and_complete
+    type: log
+    description: Log workflow completion
+    config:
+      level: info
+      message: "Risk monitoring completed. Score: ${steps.call_ai_risk_engine.outputs.risk_score}"
+      metadata:
+        risk_score: ${steps.call_ai_risk_engine.outputs.risk_score}
+        action: ${steps.call_ai_risk_engine.outputs.recommended_action}
+        timestamp: ${Date.now()}
+
+# Error handling
+on_error:
+  - type: log
+    level: error
+    message: "Workflow failed: ${error.message}"
+  - type: notification
+    channels:
+      - slack
+      - email
+    recipients: ${ALERT_RECIPIENTS}
+
+# Monitoring
+monitoring:
+  metrics:
+    - name: workflow_execution_time
+      type: histogram
+    - name: risk_score_distribution
+      type: histogram
+    - name: actions_triggered
+      type: counter
+  alerts:
+    - condition: execution_time > 60s
+      severity: warning
+    - condition: error_rate > 0.1
+      severity: critical

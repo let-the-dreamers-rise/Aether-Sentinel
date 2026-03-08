@@ -1,0 +1,23 @@
+{
+  "name": "aether-sentinel-tenderly",
+  "version": "1.0.0",
+  "description": "Tenderly simulation scripts for AETHER SENTINEL",
+  "scripts": {
+    "simulate:flash-crash": "ts-node simulations/flash-crash.ts",
+    "simulate:liquidity-drain": "ts-node simulations/liquidity-drain.ts",
+    "simulate:stablecoin-depeg": "ts-node simulations/stablecoin-depeg.ts",
+    "deploy:testnet": "ts-node scripts/deploy-to-testnet.ts",
+    "validate:deployment": "ts-node scripts/validate-deployment.ts"
+  },
+  "dependencies": {
+    "@tenderly/sdk": "^3.0.0",
+    "ethers": "^6.10.0",
+    "dotenv": "^16.3.1",
+    "axios": "^1.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.6",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "_format": "hh-sol-artifact-1",
+  "contractName": "TestImport",
+  "sourceName": "contracts/TestImport.sol",
+  "abi": [
+    {
+      "inputs": [],
+      "name": "test",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "pure",
+      "type": "function"
+    }
+  ],
+  "bytecode": "0x6080604052348015600f57600080fd5b50607780601d6000396000f3fe6080604052348015600f57600080fd5b506004361060285760003560e01c8063f8a8fd6d14602d575b600080fd5b604080516001815290519081900360200190f3fea2646970667358221220cd09d5d3f43dd6fa3375144786028a87e0a5c89d92336fce76b4435ece0c5c4464736f6c63430008180033",
+  "deployedBytecode": "0x6080604052348015600f57600080fd5b506004361060285760003560e01c8063f8a8fd6d14602d575b600080fd5b604080516001815290519081900360200190f3fea2646970667358221220cd09d5d3f43dd6fa3375144786028a87e0a5c89d92336fce76b4435ece0c5c4464736f6c63430008180033",
+  "linkReferences": {},
+  "deployedLinkReferences": {}
+}

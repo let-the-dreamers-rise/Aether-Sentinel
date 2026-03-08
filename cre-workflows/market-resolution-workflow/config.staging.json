@@ -1,0 +1,8 @@
+{
+  "schedule": "0 */5 * * * *",
+  "chainName": "ethereum-testnet-sepolia",
+  "predictionMarketAddress": "0x7aa16Bf4eBA937471C88514fb91eA8D10d0d92dA",
+  "priceApiUrl": "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd&include_24hr_change=true",
+  "maxMarketsToCheck": 10,
+  "gasLimit": "500000"
+}

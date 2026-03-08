@@ -1,0 +1,18 @@
+# AETHER SENTINEL - Risk Monitoring CRE Workflow Configuration
+# Reads vault state -> calls AI risk engine -> writes risk response on-chain
+
+staging-settings:
+  user-workflow:
+    workflow-name: "aether-sentinel-risk-monitoring-staging"
+  workflow-artifacts:
+    workflow-path: "./main.ts"
+    config-path: "./config.staging.json"
+    secrets-path: ""
+
+production-settings:
+  user-workflow:
+    workflow-name: "aether-sentinel-risk-monitoring-production"
+  workflow-artifacts:
+    workflow-path: "./main.ts"
+    config-path: "./config.production.json"
+    secrets-path: "../secrets.yaml"
