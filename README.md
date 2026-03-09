@@ -300,7 +300,3 @@ AETHER SENTINEL/
 | **Oasis** | Sapphire confidential smart contracts |
 
 ---
-
-## 📄 License
-
-MIT
